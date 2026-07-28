@@ -53,8 +53,15 @@ jobs:
       - name: Pack
         id: pack
         run: |
+          # zstd -T0 picks its worker count from the host, and multi-worker
+          # framing is not byte-stable; -T1 keeps the archive reproducible.
+          # The tar hash is logged separately so a future drift can be pinned
+          # on the archive rather than the compressor.
           tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
-              --format=gnu -C stage -cf - . | zstd -19 -T0 -o retro-consoles.tzst
+              --mode=go-w,go+rX --format=gnu -C stage -cf raw.tar .
+          echo "tar    $(sha256sum raw.tar | cut -d' ' -f1)"
+          zstd -19 -T1 -q -o retro-consoles.tzst raw.tar
+          rm -f raw.tar
           sha256sum retro-consoles.tzst | cut -d' ' -f1 > retro-consoles.tzst.sha256
           sha=$(cat retro-consoles.tzst.sha256)
           published=$(curl -sfL "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/retro-consoles.tzst.sha256" | tr -d '[:space:]' || true)
