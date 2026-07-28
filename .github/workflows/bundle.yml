@@ -1,0 +1,75 @@
+name: bundle
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: write
+
+env:
+  ABI: arm64-v8a
+  ARMSX2_PIN: a0bdcbe917bea686333c9683c28b2fca8ed1ed8d
+  DOLPHIN_PIN: b008142f72a099a9bcb971776209504f085ae0be
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd
+
+      - name: Collect cores
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p stage/cores
+          while IFS='|' read -r repo asset; do
+            [ -z "$repo" ] && continue
+            case "$repo" in \#*) continue ;; esac
+            gh release download latest --repo "WinNative-Emu/$repo" --pattern "$asset" --dir stage/cores --clobber
+            echo "  $repo -> $asset"
+          done < cores.list
+          ls -l stage/cores
+
+      - name: Collect emulator data
+        run: |
+          git clone -q --filter=blob:none --no-checkout https://github.com/WinNative-Emu/dolphin.git dolphin-src
+          git -C dolphin-src checkout -q "$DOLPHIN_PIN" -- Data/Sys
+          mkdir -p stage/data/dolphin-emu
+          cp -r dolphin-src/Data/Sys stage/data/dolphin-emu/
+
+          git clone -q --filter=blob:none --no-checkout https://github.com/WinNative-Emu/ARMSX2.git armsx2-src
+          git -C armsx2-src checkout -q "$ARMSX2_PIN" -- platforms/android/app/src/main/assets
+          mkdir -p stage/data/armsx2
+          cp -r armsx2-src/platforms/android/app/src/main/assets/. stage/data/armsx2/ 2>/dev/null || true
+          du -sh stage/data/* || true
+
+      - name: Pack
+        id: pack
+        run: |
+          echo "$GITHUB_SHA" > stage/BUNDLE_SHA
+          date -u +%Y-%m-%dT%H:%M:%SZ > stage/BUNDLE_DATE
+          tar -C stage -cf - . | zstd -19 -T0 -o retro-consoles.tzst
+          sha256sum retro-consoles.tzst | cut -d' ' -f1 > retro-consoles.tzst.sha256
+          ls -l retro-consoles.tzst
+          echo "tag=bundle-$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.pack.outputs.tag }}"
+          notes="Combined arm64-v8a retro console bundle: every libretro core, the ARMSX2 and Dolphin emucores, and their runtime data."
+          for t in "$tag" latest; do
+            if ! gh release view "$t" > /dev/null 2>&1; then
+              gh release create "$t" --title "$t" --notes "$notes"
+            fi
+            gh release upload "$t" retro-consoles.tzst retro-consoles.tzst.sha256 --clobber
+          done
+          gh release edit latest --notes "$notes"$'\n\n'"Newest immutable tag: $tag"
