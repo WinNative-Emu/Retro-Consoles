@@ -3,7 +3,7 @@ name: bundle
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * 1"
+    - cron: "0 22 * * 5"
 
 permissions:
   contents: write
@@ -53,29 +53,35 @@ jobs:
       - name: Pack
         id: pack
         run: |
-          built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          tag="bundle-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
-          echo "$GITHUB_SHA" > stage/BUNDLE_SHA
-          echo "$built_at" > stage/BUNDLE_DATE
-          tar -C stage -cf - . | zstd -19 -T0 -o retro-consoles.tzst
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+              --format=gnu -C stage -cf - . | zstd -19 -T0 -o retro-consoles.tzst
           sha256sum retro-consoles.tzst | cut -d' ' -f1 > retro-consoles.tzst.sha256
-
-          # Version descriptor the app polls to decide whether an update exists.
-          # sha256 is the authority; buildDate is what the user is shown.
+          sha=$(cat retro-consoles.tzst.sha256)
+          published=$(curl -sfL "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/retro-consoles.tzst.sha256" | tr -d '[:space:]' || true)
+          ls -l retro-consoles.tzst
+          echo "built     $sha"
+          echo "published ${published:-<none>}"
+          if [ "$sha" = "$published" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Bundle is byte-identical to the published one; nothing to release."
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          tag="bundle-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
           cat > bundle-info.json <<EOF
           {
             "tag": "$tag",
-            "buildDate": "$built_at",
-            "sha256": "$(cat retro-consoles.tzst.sha256)",
+            "buildDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "sha256": "$sha",
             "size": $(stat -c%s retro-consoles.tzst),
             "cores": $(ls stage/cores | wc -l)
           }
           EOF
           cat bundle-info.json
-          ls -l retro-consoles.tzst
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Publish
+        if: steps.pack.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

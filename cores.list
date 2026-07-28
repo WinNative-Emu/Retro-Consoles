@@ -10,7 +10,3 @@ mupen64plus-libretro-nx|libmupen64plus_next_gles3_libretro_android.so
 ARMSX2|libemucore_4k.so
 ARMSX2|libemucore_16k.so
 dolphin|libmain.so
-dolphin|libhook_impl.so
-dolphin|libmain_hook.so
-dolphin|libgsl_alloc_hook.so
-dolphin|libfile_redirect_hook.so
