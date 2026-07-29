@@ -16,9 +16,15 @@ Layout inside the archive:
 
 ## Schedule
 
-Every core fork rebuilds Friday 17:00 America/New_York; this repository packages
-them an hour later, at 18:00. Both crons are fixed UTC (21:00 and 22:00), so the
-local times shift by an hour outside daylight saving.
+Every core fork syncs its upstream and rebuilds daily at 17:00
+America/New_York; this repository packages them an hour later, at 18:00. Both
+crons are fixed UTC (21:00 and 22:00), so the local times shift by an hour
+outside daylight saving.
+
+A scheduled run does no work unless there is work to do. Each fork only rebuilds
+when the upstream merge actually brought commits, and this repository fingerprints
+every core's published asset first (`sources.sha256`) and exits before downloading
+anything when nothing has moved.
 
 ## Update detection
 

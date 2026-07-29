@@ -3,7 +3,7 @@ name: bundle
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 22 * * 5"
+    - cron: "0 22 * * *"
 
 permissions:
   contents: write
@@ -24,7 +24,34 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq zstd
 
+      - name: Check for new core releases
+        id: sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          : > sources.txt
+          while IFS='|' read -r repo asset; do
+            [ -z "$repo" ] && continue
+            case "$repo" in \#*) continue ;; esac
+            gh api "repos/WinNative-Emu/$repo/releases/tags/latest" \
+              --jq ".assets[] | select(.name==\"$asset\") | \"$repo|\(.name)|\(.updated_at)|\(.size)\"" >> sources.txt
+          done < cores.list
+          sort -o sources.txt sources.txt
+          fp=$(sha256sum sources.txt | cut -d' ' -f1)
+          prev=$(curl -sfL "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/sources.sha256" | tr -d '[:space:]' || true)
+          cat sources.txt
+          echo "fingerprint $fp"
+          echo "previous    ${prev:-<none>}"
+          echo "$fp" > sources.sha256
+          if [ "$fp" = "$prev" ] && [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "fresh=false" >> "$GITHUB_OUTPUT"
+            echo "No core has published a new build; skipping the rebuild."
+          else
+            echo "fresh=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Collect cores
+        if: steps.sources.outputs.fresh == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -38,6 +65,7 @@ jobs:
           ls -l stage/cores
 
       - name: Collect emulator data
+        if: steps.sources.outputs.fresh == 'true'
         run: |
           git clone -q --filter=blob:none --no-checkout https://github.com/WinNative-Emu/dolphin.git dolphin-src
           git -C dolphin-src checkout -q "$DOLPHIN_PIN" -- Data/Sys
@@ -51,6 +79,7 @@ jobs:
           du -sh stage/data/* || true
 
       - name: Pack
+        if: steps.sources.outputs.fresh == 'true'
         id: pack
         run: |
           # zstd -T0 picks its worker count from the host, and multi-worker
@@ -88,7 +117,7 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Publish
-        if: steps.pack.outputs.changed == 'true'
+        if: steps.sources.outputs.fresh == 'true' && steps.pack.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -98,6 +127,6 @@ jobs:
             if ! gh release view "$t" > /dev/null 2>&1; then
               gh release create "$t" --title "$t" --notes "$notes"
             fi
-            gh release upload "$t" retro-consoles.tzst retro-consoles.tzst.sha256 bundle-info.json --clobber
+            gh release upload "$t" retro-consoles.tzst retro-consoles.tzst.sha256 bundle-info.json sources.sha256 --clobber
           done
           gh release edit latest --notes "$notes"$'\n\n'"Newest immutable tag: $tag"
