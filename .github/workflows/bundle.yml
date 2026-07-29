@@ -38,7 +38,7 @@ jobs:
           done < cores.list
           sort -o sources.txt sources.txt
           fp=$(sha256sum sources.txt | cut -d' ' -f1)
-          prev=$(curl -sfL "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/sources.sha256" | tr -d '[:space:]' || true)
+          prev=$(curl -sfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/sources.sha256" | tr -d '[:space:]' || true)
           cat sources.txt
           echo "fingerprint $fp"
           echo "previous    ${prev:-<none>}"
@@ -93,7 +93,7 @@ jobs:
           rm -f raw.tar
           sha256sum retro-consoles.tzst | cut -d' ' -f1 > retro-consoles.tzst.sha256
           sha=$(cat retro-consoles.tzst.sha256)
-          published=$(curl -sfL "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/retro-consoles.tzst.sha256" | tr -d '[:space:]' || true)
+          published=$(curl -sfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/retro-consoles.tzst.sha256" | tr -d '[:space:]' || true)
           ls -l retro-consoles.tzst
           echo "built     $sha"
           echo "published ${published:-<none>}"
