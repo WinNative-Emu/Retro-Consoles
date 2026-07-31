@@ -1,0 +1,26 @@
+# Runtime payloads that are not libretro cores.
+#
+# cores.list carries one .so per line, dropped into cores/. Some systems need
+# more than that: the 3D engine is a whole LOVE runtime plus its game archive,
+# and its mod is a zip the app unpacks itself. Those land under data/ instead,
+# which is where WinNative already looks for Dolphin's and ARMSX2's runtime
+# files.
+#
+# fork repo|release asset|destination under data/|unzip or copy
+#
+#   unzip  the archive is expanded into the destination directory
+#   copy   the asset is placed in the destination directory as-is, because
+#          something on the device expects the archive itself
+#
+# Every entry also joins the freshness fingerprint, so a new engine or mod
+# build rebuilds the bundle just as a new core does.
+
+# The Gen 1 3D engine: arm64 LOVE runtime + game.love. WinNative loads these by
+# absolute path out of the bundle, so the layout inside the zip (game.love and
+# lib/*.so) is what it expects to find here.
+gen1recomp|gen1recomp-engine.zip|gen1recomp|unzip
+
+# The 3D voxel mod. Kept as a zip on purpose: WinNative unpacks it into the
+# engine's own mod directory at launch, because files written there by anything
+# other than the app itself are not fully readable by it.
+DramaticShapeVoxelMod|DRAMATIC_SHAPE.zip|gen1recomp-mods|copy

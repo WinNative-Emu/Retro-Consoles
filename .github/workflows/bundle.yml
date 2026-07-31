@@ -22,7 +22,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq zstd
+          sudo apt-get install -y -qq zstd unzip
 
       - name: Check for new core releases
         id: sources
@@ -36,6 +36,15 @@ jobs:
             gh api "repos/WinNative-Emu/$repo/releases/tags/latest" \
               --jq ".assets[] | select(.name==\"$asset\") | \"$repo|\(.name)|\(.updated_at)|\(.size)\"" >> sources.txt
           done < cores.list
+          # data.list payloads count towards freshness too, or a new engine or
+          # mod build would sit unpublished until some unrelated core happened
+          # to change.
+          while IFS='|' read -r repo asset dest mode; do
+            [ -z "$repo" ] && continue
+            case "$repo" in \#*) continue ;; esac
+            gh api "repos/WinNative-Emu/$repo/releases/tags/latest" \
+              --jq ".assets[] | select(.name==\"$asset\") | \"$repo|\(.name)|\(.updated_at)|\(.size)\"" >> sources.txt
+          done < data.list
           sort -o sources.txt sources.txt
           fp=$(sha256sum sources.txt | cut -d' ' -f1)
           prev=$(curl -sfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/sources.sha256" | tr -d '[:space:]' || true)
@@ -66,6 +75,8 @@ jobs:
 
       - name: Collect emulator data
         if: steps.sources.outputs.fresh == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git clone -q --filter=blob:none --no-checkout https://github.com/WinNative-Emu/dolphin.git dolphin-src
           git -C dolphin-src checkout -q "$DOLPHIN_PIN" -- Data/Sys
@@ -76,6 +87,32 @@ jobs:
           git -C armsx2-src checkout -q "$ARMSX2_PIN" -- platforms/android/app/src/main/assets
           mkdir -p stage/data/armsx2
           cp -r armsx2-src/platforms/android/app/src/main/assets/. stage/data/armsx2/ 2>/dev/null || true
+
+          # Payloads published as release assets by their own forks, rather
+          # than checked out of a source tree like the two above.
+          while IFS='|' read -r repo asset dest mode; do
+            [ -z "$repo" ] && continue
+            case "$repo" in \#*) continue ;; esac
+            [ -n "$dest" ] || { echo "data.list: no destination for $repo|$asset" >&2; exit 1; }
+            mkdir -p "stage/data/$dest"
+            gh release download latest --repo "WinNative-Emu/$repo" \
+              --pattern "$asset" --dir dl --clobber
+            case "$mode" in
+              unzip)
+                unzip -q -o "dl/$asset" -d "stage/data/$dest"
+                ;;
+              copy)
+                cp "dl/$asset" "stage/data/$dest/"
+                ;;
+              *)
+                echo "data.list: unknown mode '$mode' for $repo|$asset" >&2
+                exit 1
+                ;;
+            esac
+            rm -f "dl/$asset"
+            echo "  $repo -> data/$dest ($mode)"
+          done < data.list
+
           du -sh stage/data/* || true
 
       - name: Pack
@@ -122,7 +159,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ steps.pack.outputs.tag }}"
-          notes="Combined arm64-v8a retro console bundle: every libretro core, the ARMSX2 and Dolphin emucores, and their runtime data."
+          notes="Combined arm64-v8a retro console bundle: every libretro core, the ARMSX2 and Dolphin emucores, the Gen 1 3D engine and its voxel mod, and their runtime data."
           for t in "$tag" latest; do
             if ! gh release view "$t" > /dev/null 2>&1; then
               gh release create "$t" --title "$t" --notes "$notes"
